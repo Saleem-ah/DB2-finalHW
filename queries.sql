@@ -1,3 +1,9 @@
+USE rental_dw;
+
+-- =====================================
+-- Rental Analysis Queries
+-- =====================================
+
 -- 1. Which films are rented most frequently?
 SELECT
     f.title,
@@ -9,7 +15,7 @@ GROUP BY f.title
 ORDER BY total_rentals DESC;
 
 
--- 2. Which film categories are most popular among customers?
+-- 2. Which film categories are most popular?
 SELECT
     f.category,
     COUNT(fr.rental_key) AS total_rentals
@@ -20,67 +26,33 @@ GROUP BY f.category
 ORDER BY total_rentals DESC;
 
 
--- 3. Which films are returned late most often?
+-- 3. Which rentals were returned late most often?
 SELECT
     f.title,
-    COUNT(fr.rental_key) AS late_return_count,
+    COUNT(*) AS late_returns,
     SUM(fr.days_overdue) AS total_days_overdue
 FROM Fact_Rental fr
 JOIN Dim_Film f
     ON fr.film_key = f.film_key
 WHERE fr.late_return_flag = 1
 GROUP BY f.title
-ORDER BY late_return_count DESC, total_days_overdue DESC;
+ORDER BY late_returns DESC, total_days_overdue DESC;
 
 
--- 4. Which films generate the highest total revenue?
+-- 4. How does rental activity change over time?
 SELECT
-    f.title,
-    SUM(fp.payment_amount) AS total_revenue
-FROM Fact_Payment fp
-JOIN Dim_Film f
-    ON fp.film_key = f.film_key
-GROUP BY f.title
-ORDER BY total_revenue DESC;
-
-
--- 5. Which customers rent the most films overall?
-SELECT
-    c.full_name,
-    c.email,
+    d.year,
+    d.month_number,
+    d.month_name,
     COUNT(fr.rental_key) AS total_rentals
 FROM Fact_Rental fr
-JOIN Dim_Customer c
-    ON fr.customer_key = c.customer_key
-GROUP BY c.full_name, c.email
-ORDER BY total_rentals DESC;
+JOIN Dim_Date d
+    ON fr.rental_date_key = d.date_key
+GROUP BY d.year, d.month_number, d.month_name
+ORDER BY d.year, d.month_number;
 
 
--- 6. Which customers generate the highest total revenue?
-SELECT
-    c.full_name,
-    c.email,
-    SUM(fp.payment_amount) AS total_revenue
-FROM Fact_Payment fp
-JOIN Dim_Customer c
-    ON fp.customer_key = c.customer_key
-GROUP BY c.full_name, c.email
-ORDER BY total_revenue DESC;
-
-
--- 7. What are the most active customer locations (cities and countries)?
-SELECT
-    c.city,
-    c.country,
-    COUNT(fr.rental_key) AS total_rentals
-FROM Fact_Rental fr
-JOIN Dim_Customer c
-    ON fr.customer_key = c.customer_key
-GROUP BY c.city, c.country
-ORDER BY total_rentals DESC;
-
-
--- 8. Which stores generate the highest number of rentals?
+-- 5. Which stores process the highest number of rentals?
 SELECT
     s.store_id,
     s.city,
@@ -93,56 +65,91 @@ GROUP BY s.store_id, s.city, s.country
 ORDER BY total_rentals DESC;
 
 
--- 9. Which stores generate the highest revenue?
+-- =====================================
+-- Payment and Revenue Analysis Queries
+-- =====================================
+
+-- 6. Which films generate the highest revenue?
 SELECT
-    s.store_id,
-    s.city,
-    s.country,
+    f.title,
     SUM(fp.payment_amount) AS total_revenue
 FROM Fact_Payment fp
-JOIN Dim_Store s
-    ON fp.store_key = s.store_key
-GROUP BY s.store_id, s.city, s.country
+JOIN Dim_Film f
+    ON fp.film_key = f.film_key
+GROUP BY f.title
 ORDER BY total_revenue DESC;
 
 
--- 10. Which staff members process the most rentals or payments?
+-- 7. Which customers generate the highest revenue?
 SELECT
-    st.full_name,
-    COUNT(DISTINCT fr.rental_key) AS total_rentals,
-    COUNT(DISTINCT fp.payment_key) AS total_payments
-FROM Dim_Staff st
-LEFT JOIN Fact_Rental fr
-    ON st.staff_key = fr.staff_key
-LEFT JOIN Fact_Payment fp
-    ON st.staff_key = fp.staff_key
-GROUP BY st.full_name
-ORDER BY total_rentals DESC, total_payments DESC;
+    c.full_name,
+    c.email,
+    SUM(fp.payment_amount) AS total_revenue
+FROM Fact_Payment fp
+JOIN Dim_Customer c
+    ON fp.customer_key = c.customer_key
+GROUP BY c.full_name, c.email
+ORDER BY total_revenue DESC;
 
 
--- 11. How does total revenue change by month, quarter, or year?
+-- 8. How does revenue change over time?
 SELECT
     d.year,
-    d.quarter,
     d.month_number,
     d.month_name,
     SUM(fp.payment_amount) AS total_revenue
 FROM Fact_Payment fp
 JOIN Dim_Date d
     ON fp.payment_date_key = d.date_key
-GROUP BY d.year, d.quarter, d.month_number, d.month_name
+GROUP BY d.year, d.month_number, d.month_name
 ORDER BY d.year, d.month_number;
 
 
--- 12. Which time periods see the highest rental activity?
+-- =====================================
+-- Inventory Analysis Queries
+-- =====================================
+
+-- 9. How many inventory copies are available for each film and store?
 SELECT
-    d.year,
-    d.quarter,
-    d.month_number,
-    d.month_name,
-    COUNT(fr.rental_key) AS total_rentals
-FROM Fact_Rental fr
-JOIN Dim_Date d
-    ON fr.rental_date_key = d.date_key
-GROUP BY d.year, d.quarter, d.month_number, d.month_name
-ORDER BY total_rentals DESC;
+    f.title,
+    s.store_id,
+    s.city,
+    COUNT(fi.inventory_key) AS total_inventory_copies
+FROM Fact_Inventory fi
+JOIN Dim_Film f
+    ON fi.film_key = f.film_key
+JOIN Dim_Store s
+    ON fi.store_key = s.store_key
+GROUP BY f.title, s.store_id, s.city
+ORDER BY total_inventory_copies DESC;
+
+
+-- =====================================
+-- Overall Business Performance Query
+-- =====================================
+
+-- 10. Which stores perform best in terms of rentals, inventory, and revenue?
+SELECT
+    s.store_id,
+    s.city,
+    s.country,
+    COALESCE(r.total_rentals, 0) AS total_rentals,
+    COALESCE(i.total_inventory_copies, 0) AS total_inventory_copies,
+    COALESCE(p.total_revenue, 0) AS total_revenue
+FROM Dim_Store s
+LEFT JOIN (
+    SELECT store_key, COUNT(*) AS total_rentals
+    FROM Fact_Rental
+    GROUP BY store_key
+) r ON s.store_key = r.store_key
+LEFT JOIN (
+    SELECT store_key, COUNT(*) AS total_inventory_copies
+    FROM Fact_Inventory
+    GROUP BY store_key
+) i ON s.store_key = i.store_key
+LEFT JOIN (
+    SELECT store_key, SUM(payment_amount) AS total_revenue
+    FROM Fact_Payment
+    GROUP BY store_key
+) p ON s.store_key = p.store_key
+ORDER BY total_revenue DESC;
